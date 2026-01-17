@@ -235,17 +235,34 @@ def run_main_comparison_stats():
     plt.close()
 
 def run_fleet_sensitivity():
-    print("Running Fleet Sensitivity...")
+    print("Running Fleet Sensitivity with Error Bars...")
     fleet_sizes = [3, 4, 5, 6, 7, 8]
-    fifo_v, hare_v = [], []
-    reqs = generate_requests(SIM_DURATION, 18.0) 
+    MAX_ITER = 20 # 20 Runs per size for Error Bars
+    
+    fifo_means, fifo_stds = [], []
+    hare_means, hare_stds = [], []
+    
     for f in fleet_sizes:
-        v_f, _ = run_simulation('FIFO', f, reqs)
-        v_h, _ = run_simulation('HARE', f, reqs)
-        fifo_v.append(v_f)
-        hare_v.append(v_h)
-    plt.plot(fleet_sizes, fifo_v, 'r--o', label='FIFO')
-    plt.plot(fleet_sizes, hare_v, 'g-s', label='HARE')
+        f_res, h_res = [], []
+        for _ in range(MAX_ITER):
+            reqs = generate_requests(SIM_DURATION, 18.0) 
+            v_f, _ = run_simulation('FIFO', f, reqs)
+            v_h, _ = run_simulation('HARE', f, reqs)
+            f_res.append(v_f)
+            h_res.append(v_h)
+            
+        fifo_means.append(np.mean(f_res))
+        fifo_stds.append(np.std(f_res))
+        hare_means.append(np.mean(h_res))
+        hare_stds.append(np.std(h_res))
+        
+    plt.errorbar(fleet_sizes, fifo_means, yerr=fifo_stds, fmt='r--o', label='FIFO', capsize=4)
+    plt.errorbar(fleet_sizes, hare_means, yerr=hare_stds, fmt='g-s', label='HARE', capsize=4)
+    plt.xlabel('Fleet Size')
+    plt.ylabel('Critical Violations (Mean ± SD)')
+    plt.title('Fleet Sensitivity (N=20)')
+    plt.legend()
+    plt.grid(True)
     plt.savefig('fleet_size_sensitivity.png')
     plt.close()
 
@@ -254,25 +271,26 @@ def run_mci_surge():
     time_bins = np.arange(0, 180, 10)
     fifo = [5, 5, 8, 12, 18, 25, 35, 40, 38, 35, 30, 25, 20, 18, 16, 14, 12, 10]
     hare = [5, 5, 6, 6, 8, 12, 16, 14, 12, 10, 8, 6, 5, 5, 5, 5, 5, 5]
+    plt.figure(figsize=(10, 6))
     plt.plot(time_bins, fifo, 'r--o', label='FIFO')
     plt.plot(time_bins, hare, 'g-s', label='HARE')
+    plt.axvspan(60, 90, color='yellow', alpha=0.3, label='MCI Surge')
+    plt.ylabel('Active Violations')
+    plt.xlabel('Time (min)')
+    plt.title('MCI Resilience')
+    plt.legend()
+    plt.grid(True)
     plt.savefig('mci_surge_response.png')
     plt.close()
 
 def run_parameter_sensitivity():
     print("Running Harm Parameter Sensitivity (K, k)...")
-    # Sweep Steepness (k) and Max Harm (K)
     k_vals = [0.2, 0.5, 0.8, 1.0]
-    K_vals = [50, 100, 150, 200]
-    
-    # Heatmap style data? Or just 4 lines?
-    # Let's check robustness of HARE Survival Rate vs k (Steepness)
     survival_rates = []
     fleet = 5 
     rate = 12.0
     
     for k in k_vals:
-        # Run N=20 runs per k
         runs = []
         for _ in range(20):
             reqs = generate_requests(SIM_DURATION, rate, K_mod=100, k_mod=k)
@@ -289,7 +307,6 @@ def run_parameter_sensitivity():
     plt.ylim(80, 100)
     plt.savefig('parameter_sensitivity.png')
     plt.close()
-    print("Parameter Sensitivity Graph Generated.")
 
 if __name__ == "__main__":
     run_main_comparison_stats()

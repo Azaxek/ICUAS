@@ -119,7 +119,7 @@ For stable but urgent supplies (e.g., insulin, antibiotics for sepsis), harm may
 \begin{equation}
     H_i(t) = \alpha_i (t - t_{0,i})^\beta
 \end{equation}
-where $\alpha_i$ is a severity coefficient and $1 \le \beta \le 2$.
+where $\alpha_i$ is a severity coefficient. Due to the scarcity of continuous clinical data for trauma transport, we approximate Type B (Hemorrhage) and Type C (Routine) as linear ($\beta=1$) and flat functions respectively, serving as strict lower bounds on urgency compared to cardiac arrest.
 
 \subsubsection{Sigmoidal Criticality (The PNR Model)}
 For hyper-acute cases like cardiac arrest or stroke, the harm function is best modeled as a sigmoid. The patient remains viable for a short window, after which survival probability plummets rapidly.
@@ -132,7 +132,7 @@ We model this using a logistic function:
 \begin{equation}
     H_i(t) = \frac{K}{1 + e^{-k(t - t_{\PNR,i})}}
 \end{equation}
-Here, $K=100$ represents the maximum harm (death/permanent disability), and $k=0.5$ controls the steepness of the deterioration.
+Here, $K=100$ represents the maximum harm, and $k=0.5$ controls the steepness. These parameters are calibrated such that $H_i(t)$ approximates the 10\%-per-minute survival drop-off reported in out-of-hospital cardiac arrest studies \cite{larsen1993predicting}.
 
 \subsection{Composite Harm for Multi-Payloads}
 In scenarios where a drone carries multiple distinct payloads (e.g., RBC units for Customer A and an Organ for Customer B), the system must evaluate the \textit{Composite Harm Gradient}. We define the aggregate harm $H_{\Sigma}(t)$ as the weighted sum of individual payload deterioration curves:
@@ -191,7 +191,7 @@ Solving the full Harm-VRP is NP-hard. To enable real-time responsiveness ($<100$
 \STATE \quad Calculate viability set $V_{viable} = \{r_i \in R \mid t_{now} + \text{fly}(r_i) < t_{\PNR,i} \}$
 \STATE \quad \textbf{If} $V_{viable}$ is empty, consider $R$ (palliative/best-effort)
 \STATE \quad \textbf{For} each $r_i \in V_{viable}$:
-\STATE \quad \quad Compute score $S_i = \text{Grad}(H_i) \times w_{urgent} - \text{Penalty}(dist)$
+\STATE \quad \quad Compute score $S_i = \text{Grad}(H_i) \text{ [see Eq. 10]} \times w_{urgent} - \text{Penalty}(dist)$
 \STATE \quad \textbf{Select} $r^*$ with max $S_i$
 \STATE \quad Dispatch $v$ to $r^*$
 \STATE \quad Update $R \leftarrow R \setminus \{r^*\}$
@@ -297,7 +297,7 @@ In our simulation, \HARE saved 27 more lives than FIFO over 100 missions (Table 
 \section{Discussion}
 
 \subsection{Ethical AI and Human Factors}
-The transition from FCFS to harm-based prioritization introduces profound ethical questions. \HARE explicitly favors patients with acute conditions over those who waited longer but are stable. While this utilitarian approach maximizes aggregate survival ("lives saved"), it may lead to extended wait times for rural or Type C (routine) patients. Future iterations must incorporate "fairness constraints" to prevent indefinite starvation of low-priority requests.
+The transition from FCFS to harm-based prioritization introduces profound ethical questions. \HARE explicitly favors patients with acute conditions over those who waited longer but are stable. Furthermore, the autonomous decision to 'abandon' a patient ($t > t_{PNR}$) raises complex legal questions regarding consent and autonomy. Does an algorithm have the authority to deny care based on probabilistic futility? Future iterations must incorporate "fairness constraints" and "Right to Try" overrides to prevent indefinite starvation of low-priority requests.
 
 \subsection{Parameter Sensitivity and Limitations}
 Simulation results indicate that \HARE maintains high survival rates ($>85\%$) even when the harm decay steepness $k$ varies from 0.2 to 1.0, suggesting the RHC controller is robust to modeling errors.
