@@ -1,0 +1,23 @@
+# LaTeX
+*.aux
+*.log
+*.out
+*.toc
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.bbl
+*.blg
+*.pdf
+!ICUAS_MedDrone_Paper.pdf
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.env
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
