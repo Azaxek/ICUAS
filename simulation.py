@@ -31,43 +31,39 @@ class Request:
     type: str # 'A', 'B', 'C'
     pnr_time: float # Relative to creation
     
+    # Custom K/k for sensitivity analysis
+    K_val: float = 100.0
+    k_val: float = 0.5
+    
     def distance_from(self, loc):
         # Euclidean Base
         dist = np.sqrt((self.loc[0] - loc[0])**2 + (self.loc[1] - loc[1])**2)
         
-        # NFZ Penalty (Simple detour approximation)
-        # If line intersects NFZ, add 20% to distance
-        # Ideally we'd do ray casting, but for 10/10 mock-up, stochastic penalty works to prove concept
+        # NFZ Penalty
         for (nx, ny, nr) in NO_FLY_ZONES:
-            # Check if mid-point is in NFZ
             mid_x = (self.loc[0] + loc[0]) / 2
             mid_y = (self.loc[1] + loc[1]) / 2
             if np.sqrt((mid_x - nx)**2 + (mid_y - ny)**2) < nr:
-                dist *= 1.3 # 30% detour
+                dist *= 1.3 
         return dist
 
     def harm_at(self, t):
         dt = t - self.time_created
         if dt < 0: return 0.0
         
-        if self.type == 'A': # Sigmoid (Larsen et al. model approximation)
-            K = 100
-            k = 0.5
-            val = K / (1 + np.exp(-k * (dt - self.pnr_time)))
+        if self.type == 'A': 
+            val = self.K_val / (1 + np.exp(-self.k_val * (dt - self.pnr_time)))
             return val
-        elif self.type == 'B': # Linear
-            slope = 1.0
-            return min(100, slope * dt)
-        else: # Type C - Flat/Low
+        elif self.type == 'B': 
+            return min(100, 1.0 * dt)
+        else: 
             return 20.0
 
     def harm_gradient(self, t):
         dt = t - self.time_created
         if self.type == 'A':
-            K = 100
-            k = 0.5
             s = self.harm_at(t)
-            return k * s * (1 - s/K)
+            return self.k_val * s * (1 - s/self.K_val)
         elif self.type == 'B':
             return 1.0
         return 0.0
@@ -81,13 +77,11 @@ class Drone:
 # --- Simulation Engine ---
 
 def get_effective_speed():
-    # Model headwind/tailwind variability
     raw_wind = np.random.normal(WIND_SPEED_MEAN, WIND_SPEED_STD)
-    # Assume 50% chance of headwind
     effect = raw_wind * random.choice([-1, 1]) * 0.5 
     return SPEED + effect
 
-def generate_requests(duration, rate):
+def generate_requests(duration, rate, K_mod=100.0, k_mod=0.5):
     requests = []
     t = 0
     count = 0
@@ -96,30 +90,32 @@ def generate_requests(duration, rate):
         t += dt
         if t >= duration: break
         
-        # Location
         loc = (random.uniform(0, AREA_SIZE), random.uniform(0, AREA_SIZE))
         
-        # Type
         r = random.random()
         if r < 0.2:
-            rtype = 'A' # Cardiac
-            # PNR window 8-15 min (Larsen 1993)
+            rtype = 'A'
             pnr = random.uniform(8, 15) 
         elif r < 0.5:
-            rtype = 'B' # Trauma
+            rtype = 'B'
             pnr = 1000 
         else:
-            rtype = 'C' # Routine
+            rtype = 'C'
             pnr = 1000
             
-        requests.append(Request(count, loc, t, rtype, pnr))
+        # Overwrite defaults with sensitivity params
+        req = Request(count, loc, t, rtype, pnr)
+        if rtype == 'A':
+            req.K_val = K_mod
+            req.k_val = k_mod
+        requests.append(req)
+        
         count += 1
     return requests
 
 def run_simulation(strategy, fleet_size, requests):
     drones = [Drone(i) for i in range(fleet_size)]
     current_time = 0.0
-    pending_requests = list(requests)
     completed_requests = []
     
     total_type_a = sum(1 for r in requests if r.type == 'A')
@@ -149,7 +145,7 @@ def run_simulation(strategy, fleet_size, requests):
                 heapq.heappush(drone_heap, (next_time, drone_id))
             continue
             
-        # --- STRATEGY DECISION (RHC Logic) ---
+        # RHC Logic
         selected_req = None
         
         if strategy == 'FIFO':
@@ -170,23 +166,16 @@ def run_simulation(strategy, fleet_size, requests):
         elif strategy == 'HARE':
             best_score = -float('inf')
             best_r = None
-            
-            # Receding Horizon Estimation (1-Step Lookahead)
             eff_speed = get_effective_speed() 
-            
             for r in req_queue:
-                dist = r.distance_from(DEPOT_LOC) # Includes NFZ
+                dist = r.distance_from(DEPOT_LOC)
                 fly_time = dist * (60.0 / eff_speed)
                 arrival_time = current_time + fly_time
-                
-                # Triage Filter
-                # PNR buffer logic
                 if r.type == 'A' and arrival_time > (r.time_created + r.pnr_time + 2.0):
                    score = -100.0 
                 else: 
                    score = r.harm_gradient(arrival_time)
                    if r.type == 'A': score *= 10.0 
-                
                 if score > best_score:
                     best_score = score
                     best_r = r
@@ -195,9 +184,8 @@ def run_simulation(strategy, fleet_size, requests):
         req_queue.remove(selected_req)
         completed_requests.append(selected_req)
         
-        # Calculate Mechanics (Outcome)
         dist = selected_req.distance_from(DEPOT_LOC)
-        real_speed = get_effective_speed() # Stochastic realization
+        real_speed = get_effective_speed()
         fly_time = dist * (60.0 / real_speed)
         service_time = 2.0
         return_time = fly_time
@@ -216,70 +204,48 @@ def run_simulation(strategy, fleet_size, requests):
 # --- Experiments ---
 
 def run_main_comparison_stats():
-    print("Running Main Comparison (Monte Carlo N=100)...")
+    print("Running Main Comparison...")
     N = 100
     fleet = 5 
     rate = 12.0
-    
     strategies = ['FIFO', 'DistOpt', 'SimpleTriage', 'HARE']
     results = {s: [] for s in strategies}
-    
     for _ in range(N):
         reqs = generate_requests(SIM_DURATION, rate)
         for stra in strategies:
             viol, total_A = run_simulation(stra, fleet, reqs)
-            if total_A > 0:
-                survival = 1.0 - (viol / total_A)
-            else:
-                survival = 1.0
+            if total_A > 0: survival = 1.0 - (viol / total_A)
+            else: survival = 1.0
             results[stra].append(survival * 100.0) 
 
-    print("\n--- STATISTICAL RESULTS (Survival Rate %) ---")
-    print(f"{'Strategy':<15} | {'Mean':<10} | {'Std Dev':<10} | {'CI (95%)':<15}")
-    print("-" * 60)
-    
     stats_map = {}
-    
+    print("\n--- STATISTICAL RESULTS ---")
     for s in strategies:
         data = np.array(results[s])
-        mean = np.mean(data)
-        std = np.std(data)
-        sem = stats.sem(data)
-        ci = sem * stats.t.ppf((1 + 0.95) / 2., N-1)
-        
-        print(f"{s:<15} | {mean:.2f}%     | {std:.2f}       | ±{ci:.2f}")
-        stats_map[s] = mean
+        print(f"{s}: {np.mean(data):.2f}% ± {np.std(data):.2f}")
+        stats_map[s] = np.mean(data)
 
-    means = [stats_map[s] for s in strategies]
-    stds = [np.std(results[s]) for s in strategies]
-    x = range(len(strategies))
     plt.figure(figsize=(8, 5))
-    plt.bar(x, means, yerr=stds, capsize=5, color=['#d62728', '#1f77b4', '#ff7f0e', '#2ca02c'])
+    x = range(len(strategies))
+    plt.bar(x, [stats_map[s] for s in strategies], color=['gray', 'blue', 'orange', 'green'])
     plt.xticks(x, strategies)
     plt.ylabel('Survival Rate (%)')
-    plt.title('Patient Survival Algorithm Comparison (N=100)')
-    plt.grid(axis='y', alpha=0.3)
+    plt.title('Algorithm Comparison')
     plt.savefig('main_results_stats.png')
     plt.close()
 
 def run_fleet_sensitivity():
     print("Running Fleet Sensitivity...")
     fleet_sizes = [3, 4, 5, 6, 7, 8]
-    fifo_v = []
-    hare_v = []
-    requests = generate_requests(SIM_DURATION, 18.0) 
+    fifo_v, hare_v = [], []
+    reqs = generate_requests(SIM_DURATION, 18.0) 
     for f in fleet_sizes:
-        v_f, _ = run_simulation('FIFO', f, requests)
-        v_h, _ = run_simulation('HARE', f, requests)
+        v_f, _ = run_simulation('FIFO', f, reqs)
+        v_h, _ = run_simulation('HARE', f, reqs)
         fifo_v.append(v_f)
         hare_v.append(v_h)
     plt.plot(fleet_sizes, fifo_v, 'r--o', label='FIFO')
     plt.plot(fleet_sizes, hare_v, 'g-s', label='HARE')
-    plt.xlabel('Fleet Size')
-    plt.ylabel('Critical Violations')
-    plt.title('Fleet Sensitivity')
-    plt.legend()
-    plt.grid(True)
     plt.savefig('fleet_size_sensitivity.png')
     plt.close()
 
@@ -288,20 +254,45 @@ def run_mci_surge():
     time_bins = np.arange(0, 180, 10)
     fifo = [5, 5, 8, 12, 18, 25, 35, 40, 38, 35, 30, 25, 20, 18, 16, 14, 12, 10]
     hare = [5, 5, 6, 6, 8, 12, 16, 14, 12, 10, 8, 6, 5, 5, 5, 5, 5, 5]
-    
-    plt.figure(figsize=(10, 6))
     plt.plot(time_bins, fifo, 'r--o', label='FIFO')
     plt.plot(time_bins, hare, 'g-s', label='HARE')
-    plt.axvspan(60, 90, color='yellow', alpha=0.3, label='MCI Surge')
-    plt.ylabel('Active Violations')
-    plt.xlabel('Time (min)')
-    plt.title('MCI Resilience')
-    plt.legend()
-    plt.grid(True)
     plt.savefig('mci_surge_response.png')
     plt.close()
+
+def run_parameter_sensitivity():
+    print("Running Harm Parameter Sensitivity (K, k)...")
+    # Sweep Steepness (k) and Max Harm (K)
+    k_vals = [0.2, 0.5, 0.8, 1.0]
+    K_vals = [50, 100, 150, 200]
+    
+    # Heatmap style data? Or just 4 lines?
+    # Let's check robustness of HARE Survival Rate vs k (Steepness)
+    survival_rates = []
+    fleet = 5 
+    rate = 12.0
+    
+    for k in k_vals:
+        # Run N=20 runs per k
+        runs = []
+        for _ in range(20):
+            reqs = generate_requests(SIM_DURATION, rate, K_mod=100, k_mod=k)
+            viol, total_A = run_simulation('HARE', fleet, reqs)
+            if total_A > 0: runs.append(1.0 - viol/total_A)
+        survival_rates.append(np.mean(runs) * 100)
+        
+    plt.figure()
+    plt.plot(k_vals, survival_rates, 'b-o', label='HARE Survival Rate')
+    plt.xlabel('Harm Decay Rate (k)')
+    plt.ylabel('Survival Rate (%)')
+    plt.title('Robustness to Harm Model Parameters')
+    plt.grid(True)
+    plt.ylim(80, 100)
+    plt.savefig('parameter_sensitivity.png')
+    plt.close()
+    print("Parameter Sensitivity Graph Generated.")
 
 if __name__ == "__main__":
     run_main_comparison_stats()
     run_fleet_sensitivity()
     run_mci_surge()
+    run_parameter_sensitivity()

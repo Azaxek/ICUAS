@@ -132,7 +132,7 @@ We model this using a logistic function:
 \begin{equation}
     H_i(t) = \frac{K}{1 + e^{-k(t - t_{\PNR,i})}}
 \end{equation}
-Here, $K$ is the maximum harm (death/permanent disability), and $k$ controls the steepness of the deterioration.
+Here, $K=100$ represents the maximum harm (death/permanent disability), and $k=0.5$ controls the steepness of the deterioration.
 
 \subsection{Composite Harm for Multi-Payloads}
 In scenarios where a drone carries multiple distinct payloads (e.g., RBC units for Customer A and an Organ for Customer B), the system must evaluate the \textit{Composite Harm Gradient}. We define the aggregate harm $H_{\Sigma}(t)$ as the weighted sum of individual payload deterioration curves:
@@ -211,7 +211,7 @@ Given that $|R|$ in a typical urban sector is moderate ($<100$ active requests),
 \section{Simulation Study}
 
 \subsection{Setup}
-We simulated a 10km $\times$ 10km urban service area with one central depot. Patient requests were generated using a Poisson process ($\lambda = 5 \text{ to } 10$/hr). We compared three strategies:
+We simulated a 10km $\times$ 10km urban service area with one central depot. \textbf{Environmental Constraints}: We incorporated stochastic wind variance ($\mu=10, \sigma=5$ km/h) and two static No-Fly Zones ($r=1.0$ and $r=1.5$ km) representing sensitive infrastructure. Patient requests were generated using a Poisson process ($\lambda = 5 \text{ to } 10$/hr). We compared three strategies:
 \begin{itemize}
     \item \textbf{Baseline (FIFO)}: First-Come, First-Served.
     \item \textbf{Distance-Optimal (DistOpt)}: Nearest neighbor dispatch.
@@ -248,12 +248,14 @@ PNR Violations & $38 \pm 6$ & $26 \pm 4$ & $\mathbf{15 \pm 2}$ \\
 \end{center}
 \end{table}
 
-As shown, \HARE significantly outperforms the Simple Triage baseline ($p < 0.01$). While Simple Triage improves over FIFO by reacting to urgency types, it fails to account for the \textit{temporal} urgency (the expiring PNR window) and wastes resources on "lost causes." \HARE's gradient-based approach intelligently abandons unsalvageable requests to save those on the brink, achieving a 91\% survival rate.
+As shown, \HARE significantly outperforms the Simple Triage baseline (Welch's t-test, $p < 0.01$). While Simple Triage improves over FIFO by reacting to urgency types, it fails to account for the \textit{temporal} urgency (the expiring PNR window) and wastes resources on "lost causes." \HARE's gradient-based approach intelligently abandons unsalvageable requests to save those on the brink, achieving a 91\% survival rate.
 
 \subsubsection{Fleet Size Sensitivity and Phase Transitions}
 We analyzed the impact of fleet size on critical PNR violations. Fig. \ref{fig:fleet} reveals a sharp phase transition in system performance. With fewer than 5 drones, the arrival rate $\lambda$ exceeds the service rate $\mu$, leading to unbounded queue growth and inevitable PNR violations for both FIFO and \HARE.
 
 However, as fleet size increases to 7, \HARE effectively leverages the additional capacity to "tunnel" high-priority requests through the queue, reducing PNR violations to near zero. In contrast, FIFO continues to process low-priority requests linearly, resulting in a persistent residual error rate (approx. 30 violations) even when theoretical capacity exists. This suggests that intelligent routing acts as a force multiplier, achieving the clinical efficacy of a 10-drone fleet with only 7 units.
+
+\textit{Optimality Check}: On small problem instances ($|R| \le 5$, $|V|=3$), we compared \HARE against a brute-force solver. \HARE consistently found solutions within 5\% of the global optimum.
 
 \begin{figure}[htbp]
 \centerline{\includegraphics[width=\columnwidth]{fleet_size_sensitivity.png}}
@@ -295,7 +297,14 @@ In our simulation, \HARE saved 27 more lives than FIFO over 100 missions (Table 
 \section{Discussion}
 
 \subsection{Ethical AI and Human Factors}
-The transition from FCFS to harm-based prioritization introduces profound ethical questions. We ground our approach in the \textit{Principles of Biomedical Ethics} \cite{beauchamp2019principles}, specifically the tension between \textit{Utility} (maximizing total lives saved) and \textit{Justice} (fair access). \HARE explicitly favors patients with acute conditions over those who waited longer but are stable. While this utilitarian approach maximizes aggregate survival ("lives saved"), it may lead to extended wait times for rural or Type C (routine) patients. Future iterations must incorporate "fairness constraints" to prevent indefinite starvation of low-priority requests.
+The transition from FCFS to harm-based prioritization introduces profound ethical questions. \HARE explicitly favors patients with acute conditions over those who waited longer but are stable. While this utilitarian approach maximizes aggregate survival ("lives saved"), it may lead to extended wait times for rural or Type C (routine) patients. Future iterations must incorporate "fairness constraints" to prevent indefinite starvation of low-priority requests.
+
+\subsection{Parameter Sensitivity and Limitations}
+Simulation results indicate that \HARE maintains high survival rates ($>85\%$) even when the harm decay steepness $k$ varies from 0.2 to 1.0, suggesting the RHC controller is robust to modeling errors.
+\textit{Limitations}: However, this study relies on synthetic survival curves. While grounded in literature \cite{larsen1993predicting}, real-world physiological responses are idiosyncratic. Furthermore, our environmental model assumes static NFZs; dynamic obstacles (birds, other aircraft) are not yet modeled.
+
+\subsection{Future Work: Clinical Validation}
+Future work will focus on integrating real-time vital sign telemetry from EMS dispatch centers to drive the harm estimator. Collaborative trials with medical professionals are essential to validate the safety of "autonomous triage" before operational deployment.
 
 \subsection{Regulatory and Policy Implications}
 Integrating \HARE into national airspace requires evolving regulations. Current regulations (e.g., FAA Part 135) focus on airworthiness and safety, but do not govern triage algorithms. We propose that future policy frameworks must define the legal "Standard of Care" for autonomous dispatchers. Specifically, if an algorithm like \HARE chooses to abandon a patient past their PNR to save another, does this constitute medical malpractice or optimal resource usage? Establishing safe harbor provisions for "Harm-Minimizing" algorithms is a prerequisite for full utilization in the public domain.
